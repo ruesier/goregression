@@ -1,7 +1,11 @@
 package goregression
 
 import (
+	"fmt"
+	"math"
 	"math/rand/v2"
+	"strconv"
+	"strings"
 
 	"gonum.org/v1/gonum/mat"
 )
@@ -76,7 +80,38 @@ func (m Model) Predict(start mat.Vector) mat.Vector {
 }
 
 func (m Model) String() string {
-	return "not implemented"
+	var builder strings.Builder
+	builder.WriteString("input\n")
+	for i, weights := range m.Weights {
+		if i > 0 {
+			builder.WriteString(fmt.Sprintf("Hidden Layer %d\n", i))
+		}
+		R, C := weights.Dims()
+		for r := 0; r < R; r++ {
+			for c := 0; c < C; c++ {
+				f := strconv.FormatFloat(weights.At(r, c), 'g', 3, 64)
+				builder.WriteString(f)
+				builder.WriteByte('\t')
+			}
+			builder.WriteByte('\n')
+		}
+	}
+	builder.WriteString("output")
+	return builder.String()
+}
+
+func (m Model) hasNaN() bool {
+	for _, weights := range m.Weights {
+		R, C := weights.Dims()
+		for r := 0; r < R; r++ {
+			for c := 0; c < C; c++ {
+				if math.IsNaN(weights.At(r, c)) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 type TrainingContext struct {
@@ -142,17 +177,13 @@ func (tc *TrainingContext) backPropogate(target mat.Vector, lrate float64) float
 	}
 
 	for layer := len(deltas) - 2; layer > 0; layer-- {
-		deltas[layer] = make([]float64, tc.GeneratedNodes[layer].Len())
-		for node := 0; node < tc.GeneratedNodes[layer].Len(); node++ {
+		deltas[layer] = make([]float64, tc.PreNormalized[layer].Len())
+		for node := 0; node < tc.PreNormalized[layer].Len(); node++ {
 			sum := 0.0
-			for nextnode := 0; nextnode < tc.GeneratedNodes[layer+1].Len(); nextnode++ {
+			for nextnode := 0; nextnode < tc.PreNormalized[layer+1].Len(); nextnode++ {
 				sum += tc.Weights[layer].At(nextnode, node) * deltas[layer+1][nextnode]
 			}
-			if node < tc.PreNormalized[layer].Len() {
-				deltas[layer][node] = sum * tc.Internal.Derivative(tc.PreNormalized[layer].AtVec(node))
-			} else {
-				deltas[layer][node] = sum
-			}
+			deltas[layer][node] = sum * tc.Internal.Derivative(tc.PreNormalized[layer].AtVec(node))
 		}
 	}
 
@@ -161,11 +192,7 @@ func (tc *TrainingContext) backPropogate(target mat.Vector, lrate float64) float
 		for r := 0; r < R; r++ {
 			for c := 0; c < C; c++ {
 				current := weights.At(r, c)
-				div := tc.GeneratedNodes[layer].AtVec(c) * deltas[layer+1][r]
-				if div == 0 {
-					continue
-				}
-				change := LearningError / div
+				change := lrate * tc.GeneratedNodes[layer].AtVec(c) * deltas[layer+1][r]
 				tc.Weights[layer].Set(r, c, current-change)
 			}
 		}

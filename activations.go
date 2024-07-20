@@ -47,3 +47,24 @@ var ReLU = Activation {
 		return 0
 	},
 }
+
+var BiLn = Activation{
+	Activate: func(f float64) float64 {
+		if f == 0 {
+			return 0
+		}
+		if f > 0 {
+			return math.Log(1 + f)
+		}
+		return -math.Log(1 - f)
+	},
+	Derivative: func(f float64) float64 {
+		if f == 0 {
+			return 1
+		}
+		if f > 0 {
+			return 1/(1+f)
+		}
+		return 1/(1-f)
+	},
+}
