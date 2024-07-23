@@ -55,7 +55,7 @@ func (m Model) Predict(start mat.Vector) mat.Vector {
 	var input *mat.VecDense
 	input = mat.NewVecDense(start.Len()+1, nil)
 	for i := 0; i < start.Len(); i++ {
-		input.SetVec(i, m.Internal.Activate(start.AtVec(i)))
+		input.SetVec(i, start.AtVec(i))
 	}
 	input.SetVec(start.Len(), 1)
 	for _, weights := range m.Weights[:len(m.Weights)-1] {
@@ -116,8 +116,11 @@ func (m Model) hasNaN() bool {
 
 type TrainingContext struct {
 	*Model
+	Workers
 	GeneratedNodes []*mat.VecDense
 	PreNormalized  []*mat.VecDense
+
+	WorkerThreadCount int
 }
 
 func (tc *TrainingContext) feedForward(input mat.Vector) {
@@ -142,14 +145,15 @@ func (tc *TrainingContext) feedForward(input mat.Vector) {
 	}
 	for i := 0; i < input.Len(); i++ {
 		tc.PreNormalized[0].SetVec(i, input.AtVec(i))
-		tc.GeneratedNodes[0].SetVec(i, tc.Internal.Activate(input.AtVec(i)))
+		tc.GeneratedNodes[0].SetVec(i, input.AtVec(i))
 	}
 
 	// generate next layers
 	for layer := 1; layer < len(tc.GeneratedNodes)-1; layer++ {
 		tc.PreNormalized[layer].MulVec(tc.Weights[layer-1], tc.GeneratedNodes[layer-1])
 		for i := 0; i < tc.GeneratedNodes[layer].Len()-1; i++ {
-			tc.GeneratedNodes[layer].SetVec(i, tc.Internal.Activate(tc.PreNormalized[layer].AtVec(i)))
+			node := i
+			tc.GeneratedNodes[layer].SetVec(node, tc.Internal.Activate(tc.PreNormalized[layer].AtVec(node)))
 		}
 	}
 
@@ -161,14 +165,12 @@ func (tc *TrainingContext) feedForward(input mat.Vector) {
 }
 
 func (tc *TrainingContext) backPropogate(target mat.Vector, lrate float64) float64 {
-	LearningError := 0.0
+	Error := 0.0
 	for i := 0; i < target.Len(); i++ {
 		diff := target.AtVec(i) - tc.GeneratedNodes[len(tc.GeneratedNodes)-1].AtVec(i)
-		LearningError += (diff * diff) / 2
+		Error += (diff * diff) / 2
 	}
-	LearningError /= float64(target.Len())
-	Error := LearningError
-	LearningError *= lrate
+	Error /= float64(target.Len())
 
 	deltas := make([][]float64, len(tc.GeneratedNodes))
 	outputsize := tc.OutputSize()

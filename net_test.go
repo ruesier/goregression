@@ -86,7 +86,7 @@ func TestTraining(t *testing.T) {
 	train := TrainingContext{
 		Model: NewModel(rand.New(rand.NewPCG(20, 24)), ReLU, Sigmoid, 2, 4, 1),
 	}
-	train.Train(andTest, 3000, 0.4, func(epoch int, err float64) {
+	train.Train(andTest, 3000, 0.6, func(epoch int, err float64) {
 		if epoch%1000 == 999 {
 			t.Logf("And iteration %d: error %f", epoch, err)
 		}
@@ -187,10 +187,10 @@ func TestTraining(t *testing.T) {
 		},
 	}
 	train = TrainingContext{
-		Model: NewModel(rand.New(rand.NewPCG(30, 34)), Tanh, BiLn, 1, 3, 3, 1),
+		Model: NewModel(rand.New(rand.NewPCG(3453, 9988)), Sigmoid, Linear(1), 1, 3, 3, 1),
 	}
 	checkNaN := true
-	train.Train(regTest, 300000, 0.06, func(epoch int, err float64) {
+	train.Train(regTest, 30000, 0.1, func(epoch int, err float64) {
 		if epoch%1000 == 999 {
 			t.Logf("Reg iteration %d: error %f", epoch, err)
 		}

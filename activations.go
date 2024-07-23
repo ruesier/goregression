@@ -17,10 +17,17 @@ func Linear(slope float64) Activation {
 	}
 }
 
-func Scaled(General Activation, factor float64) Activation {
+func Strech(General Activation, factor float64) Activation {
 	return Activation{
 		Activate: func(f float64) float64 { return General.Activate(factor * f)},
 		Derivative: func(f float64) float64 {return factor * General.Derivative(factor * f)},
+	}
+}
+
+func Scale(General Activation, factor float64) Activation {
+	return Activation{
+		Activate: func(f float64) float64 { return factor * General.Activate(f)},
+		Derivative: func(f float64) float64 {return factor * General.Derivative(f)},
 	}
 }
 
