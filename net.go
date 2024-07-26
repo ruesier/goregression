@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"strconv"
 	"strings"
+	"sync"
 
 	"gonum.org/v1/gonum/mat"
 )
@@ -16,7 +17,7 @@ type Activation struct {
 }
 
 type Model struct {
-	Weights  []*mat.Dense
+	Weights  []mat.Mutable
 	Internal Activation
 	Output   Activation
 }
@@ -114,13 +115,29 @@ func (m Model) hasNaN() bool {
 	return false
 }
 
+func (m *Model) Clone() *Model {
+	weights := make([]mat.Mutable, len(m.Weights))
+	for i, w := range m.Weights {
+		R, C := w.Dims()
+		nw := mat.NewDense(R, C, nil)
+		for r := 0; r < R; r++ {
+			for c := 0; c < C; c++ {
+				nw.Set(r, c, w.At(r, c))
+			}
+		}
+		weights[i] = nw
+	}
+	return &Model{
+		Weights:  weights,
+		Internal: m.Internal,
+		Output:   m.Output,
+	}
+}
+
 type TrainingContext struct {
 	*Model
-	Workers
 	GeneratedNodes []*mat.VecDense
 	PreNormalized  []*mat.VecDense
-
-	WorkerThreadCount int
 }
 
 func (tc *TrainingContext) feedForward(input mat.Vector) {
@@ -165,6 +182,10 @@ func (tc *TrainingContext) feedForward(input mat.Vector) {
 }
 
 func (tc *TrainingContext) backPropogate(target mat.Vector, lrate float64) float64 {
+	return tc.backPropogateChanges(target, lrate, tc.Weights)
+}
+
+func (tc *TrainingContext) backPropogateChanges(target mat.Vector, lrate float64, changes []mat.Mutable) float64 {
 	Error := 0.0
 	for i := 0; i < target.Len(); i++ {
 		diff := target.AtVec(i) - tc.GeneratedNodes[len(tc.GeneratedNodes)-1].AtVec(i)
@@ -189,13 +210,13 @@ func (tc *TrainingContext) backPropogate(target mat.Vector, lrate float64) float
 		}
 	}
 
-	for layer, weights := range tc.Weights {
+	for layer, weights := range changes {
 		R, C := weights.Dims()
 		for r := 0; r < R; r++ {
 			for c := 0; c < C; c++ {
 				current := weights.At(r, c)
 				change := lrate * tc.GeneratedNodes[layer].AtVec(c) * deltas[layer+1][r]
-				tc.Weights[layer].Set(r, c, current-change)
+				changes[layer].Set(r, c, current-change)
 			}
 		}
 	}
@@ -213,5 +234,97 @@ func (tc *TrainingContext) Train(trainingSet [][]mat.Vector, iterations int, lra
 			totalerror += tc.backPropogate(set[1], lrate)
 		}
 		debug(i, totalerror)
+	}
+}
+
+type updateStep struct {
+	*Model
+	data [][]mat.Vector
+}
+
+func (tc *TrainingContext) TrainChunked(trainingSet [][]mat.Vector, iterations int, workers int, chunksize int, lrate float64) {
+	stepch := make(chan updateStep)
+	changech := make(chan []mat.Mutable)
+	workerGroup := sync.WaitGroup{}
+	workerGroup.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func() {
+			defer workerGroup.Done()
+			local := new(TrainingContext)
+			for step := range stepch {
+				changes := make([]mat.Mutable, len(tc.Model.Weights))
+				for i, w := range tc.Model.Weights {
+					R, C := w.Dims()
+					changes[i] = mat.NewDense(R, C, nil)
+				}
+				local.Model = step.Model
+				for _, data := range step.data {
+					local.feedForward(data[0])
+					local.backPropogateChanges(data[1], lrate, changes)
+				}
+				changech <- changes
+			}
+		}()
+	}
+
+	NewModelCh := make(chan *Model)
+	go func() {
+		model := tc.Model.Clone()
+		layerUpdatersCh := make([]chan mat.Matrix, len(model.Weights))
+		updateFlag := sync.WaitGroup{}
+		for i, weights := range model.Weights {
+			updateCh := make(chan mat.Matrix)
+			layerUpdatersCh[i] = updateCh
+			go func() {
+				R, C := weights.Dims()
+				for update := range updateCh {
+					for r := 0; r < R; r++ {
+						for c := 0; c < C; c++ {
+							weights.Set(r, c, weights.At(r, c) + update.At(r, c))
+						}
+					}
+					updateFlag.Done()
+				}
+			}()
+		}
+		changeCounter := 0
+		for change := range changech {
+			updateFlag.Add(len(change))
+			for i, cha := range change {
+				layerUpdatersCh[i] <- cha
+			}
+			updateFlag.Wait()
+			changeCounter++
+			if changeCounter >= workers {
+				NewModelCh <- model.Clone()
+				changeCounter = 0
+			}
+		}
+		NewModelCh <- model
+		close(NewModelCh)
+	}()
+
+	stepCounter := 0
+	for epoch := 0; epoch < iterations; epoch++ {
+		for start := 0; start < len(trainingSet); start += chunksize {
+			end := start + chunksize
+			if end > len(trainingSet) {
+				end = len(trainingSet)
+			}
+			stepch <- updateStep{
+				Model: tc.Model,
+				data:  trainingSet[start:end],
+			}
+			stepCounter++
+			if stepCounter >= workers {
+				tc.Model = <-NewModelCh
+				stepCounter = 0
+			}
+		}
+	}
+	close(stepch)
+	workerGroup.Wait()
+	close(changech)
+	for tc.Model = range NewModelCh {
 	}
 }
