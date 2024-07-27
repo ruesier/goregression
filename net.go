@@ -11,11 +11,6 @@ import (
 	"gonum.org/v1/gonum/mat"
 )
 
-type Activation struct {
-	Activate   func(float64) float64
-	Derivative func(float64) float64
-}
-
 type Model struct {
 	Weights  []mat.Mutable
 	Internal Activation
