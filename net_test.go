@@ -235,7 +235,7 @@ func TestChunkTraining(t *testing.T) {
 	train := TrainingContext{
 		Model: NewModel(rand.New(rand.NewPCG(3453, 9988)), Sigmoid, Linear(1), 1, 3, 3, 1),
 	}
-	train.TrainChunked(regTest, 30000, 2, 2, 0.1)
+	train.TrainChunked(regTest, 30000, 2, 2, 0.1, nil)
 	for _, test := range regTest {
 		input, expect := test[0], test[1]
 		output := train.Predict(input)
@@ -270,7 +270,7 @@ func BenchmarkChunkTraining(b *testing.B) {
 				}
 				b.ResetTimer()
 				for i := 0; i < b.N; i++ {
-					train.TrainChunked(randTest, 50, workers, chunk, 0.1)
+					train.TrainChunked(randTest, 50, workers, chunk, 0.1, nil)
 				}
 			})
 		}
@@ -333,7 +333,7 @@ func TestTrainingVSChunk(t *testing.T) {
 		Model: train1.Clone(),
 	}
 	train1.Train(regTest, 10, 0.5, nil)
-	train2.TrainChunked(regTest, 10, 1, 1, 0.5) // when workers = 1 and chunk size = 1, should reproduce the same result as Train
+	train2.TrainChunked(regTest, 10, 1, 1, 0.5, nil) // when workers = 1 and chunk size = 1, should reproduce the same result as Train
 
 	for layer, weights := range train1.Weights {
 		R, C := weights.Dims()

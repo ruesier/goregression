@@ -242,7 +242,10 @@ type updateStep struct {
 	data [][]mat.Vector
 }
 
-func (tc *TrainingContext) TrainChunked(trainingSet [][]mat.Vector, iterations int, workers int, chunksize int, lrate float64) {
+func (tc *TrainingContext) TrainChunked(trainingSet [][]mat.Vector, iterations int, workers int, chunksize int, lrate float64, debug func(epoch int, current *Model)) {
+	if debug == nil {
+		debug = func(epoch int, current *Model) {}
+	}
 	stepch := make(chan updateStep)
 	changech := make(chan []mat.Mutable)
 	workerGroup := sync.WaitGroup{}
@@ -321,6 +324,7 @@ func (tc *TrainingContext) TrainChunked(trainingSet [][]mat.Vector, iterations i
 				stepCounter = 0
 			}
 		}
+		debug(epoch, tc.Model)
 	}
 	close(stepch)
 	workerGroup.Wait()
